@@ -1,0 +1,1 @@
+idf_component_register(SRCS tanmone_uart.c INCLUDE_DIRS . REQUIRES driver)

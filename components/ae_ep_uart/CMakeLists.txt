@@ -1,1 +1,0 @@
-idf_component_register(SRCS ae_ep_uart.c INCLUDE_DIRS . REQUIRES driver)

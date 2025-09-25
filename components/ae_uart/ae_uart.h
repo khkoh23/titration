@@ -1,20 +1,20 @@
-#ifndef _AE_EP_UART_
-#define _AE_EP_UART_
+#ifndef _AE_UART_
+#define _AE_UART_
 
 #include "driver/uart.h"
 
-uint8_t ae_ep_uart_readDeviceId (void);  
-void ae_ep_uart_writeDeviceId (const uint8_t id, const uint8_t msg);
-uint16_t ae_ep_uart_readSetVolume (const uint8_t id);
-void ae_ep_uart_writeSetVolume (const uint8_t id, const uint16_t msg);
-uint16_t ae_ep_uart_readPipetteSpeed (const uint8_t id); // aspire speed, dispense speed
-void ae_ep_uart_writePipetteSpeed (const uint8_t id, const uint16_t msg); // aspire speed, dispense speed
-void ae_ep_uart_cmdAspire (const uint8_t id); 
-void ae_ep_uart_cmdDispense (const uint8_t id); 
-void ae_ep_uart_cmdDispenseStepVolume (const uint8_t id, const uint16_t); 
-void ae_ep_uart_cmdZero (const uint8_t id); 
+uint8_t ae_uart_readDeviceId (void);  
+void ae_uart_writeDeviceId (const uint8_t id, const uint8_t msg);
+uint16_t ae_uart_readSetVolume (const uint8_t id);
+void ae_uart_writeSetVolume (const uint8_t id, const uint16_t msg);
+uint16_t ae_uart_readPipetteSpeed (const uint8_t id); // aspire speed, dispense speed
+void ae_uart_writePipetteSpeed (const uint8_t id, const uint16_t msg); // aspire speed, dispense speed
+void ae_uart_cmdAspire (const uint8_t id); 
+void ae_uart_cmdDispense (const uint8_t id); 
+void ae_uart_cmdDispenseStepVolume (const uint8_t id, const uint16_t); 
+void ae_uart_cmdZero (const uint8_t id); 
 
-static const uint8_t s_CRCHi[] = {
+static const uint8_t ae_uart_s_CRCHi[] = {
     0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0,
     0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41,
     0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0,
@@ -43,7 +43,7 @@ static const uint8_t s_CRCHi[] = {
     0x80, 0x41, 0x00, 0xC1, 0x81, 0x40
 };
 
-static const uint8_t s_CRCLo[] = {
+static const uint8_t ae_uart_s_CRCLo[] = {
     0x00, 0xC0, 0xC1, 0x01, 0xC3, 0x03, 0x02, 0xC2, 0xC6, 0x06,
     0x07, 0xC7, 0x05, 0xC5, 0xC4, 0x04, 0xCC, 0x0C, 0x0D, 0xCD,
     0x0F, 0xCF, 0xCE, 0x0E, 0x0A, 0xCA, 0xCB, 0x0B, 0xC9, 0x09,
@@ -72,6 +72,6 @@ static const uint8_t s_CRCLo[] = {
     0x43, 0x83, 0x41, 0x81, 0x80, 0x40
 };
 
-uint16_t CRC16_Modbus(uint8_t * _pBuf, uint16_t _usLen); // CRC-16 modbus calculation
+uint16_t ae_uart_CRC16_Modbus(uint8_t * _pBuf, uint16_t _usLen); // CRC-16 modbus calculation
 
-#endif // _AE_EP_UART_
+#endif // _AE_UART_

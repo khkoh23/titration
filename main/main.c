@@ -18,12 +18,14 @@
 #include <rmw_microros/rmw_microros.h>
 #include "esp32_serial_transport.h"
 
-#include "ae_ep_uart.h"
+#include "ae_uart.h"
+#include "tanmone_uart.h"
 
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Aborting.\n",__LINE__,(int)temp_rc);vTaskDelete(NULL);}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc);}}
 
-static const char *AE_EP_UART_TAG = "AE_EP_UART";
+static const char *AE_UART_TAG = "AE_UART";
+static const char *TANMONE_UART_TAG = "TANMONE_UART";
 static const char *UROS_TASK_TAG = "UROS_TASK";
 
 rcl_publisher_t publisher;
@@ -78,10 +80,15 @@ void micro_ros_task(void * arg) {
 static size_t uart_port = UART_NUM_0;
 
 void app_main(void) {
-	uint8_t my_message[] = {0x03, 0x06, 0x05, 0x05};
-	uint16_t my_message_length = sizeof(my_message);
-	uint16_t crc_result = CRC16_Modbus(my_message, my_message_length);
-	ESP_LOGI(AE_EP_UART_TAG, "Checksum   Low: %x   High: %x", (uint8_t) crc_result&0x00FF, (uint8_t) ((crc_result&0xFF00)>>8));
+	uint8_t my_message1[] = {0x03, 0x06, 0x05, 0x05};
+	uint16_t my_message1_length = sizeof(my_message1);
+	uint16_t crc_result1 = ae_uart_CRC16_Modbus(my_message1, my_message1_length);
+	ESP_LOGI(AE_UART_TAG, "Checksum   Low: %x   High: %x", (uint8_t) crc_result1&0x00FF, (uint8_t) ((crc_result1&0xFF00)>>8));
+
+	uint8_t my_message2[] = {0x00, 0x03, 0x02, 0x02, 0xAE};
+	uint16_t my_message2_length = sizeof(my_message2);
+	uint16_t crc_result2 = tanmone_uart_ModRTU_CRC(my_message2, my_message2_length);
+	ESP_LOGI(TANMONE_UART_TAG, "Checksum   Low: %x   High: %x", (uint8_t) crc_result2&0x00FF, (uint8_t) ((crc_result2&0xFF00)>>8));
 
 	#if defined(RMW_UXRCE_TRANSPORT_CUSTOM)
 		rmw_uros_set_custom_transport(true, (void *) &uart_port, esp32_serial_open, esp32_serial_close, esp32_serial_write, esp32_serial_read);
