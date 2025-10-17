@@ -3,16 +3,20 @@
 
 #include "driver/uart.h"
 
-uint8_t ae_uart_readDeviceId (void);  
-void ae_uart_writeDeviceId (const uint8_t id, const uint8_t msg);
-uint16_t ae_uart_readSetVolume (const uint8_t id);
-void ae_uart_writeSetVolume (const uint8_t id, const uint16_t msg);
-uint16_t ae_uart_readPipetteSpeed (const uint8_t id); // aspire speed, dispense speed
-void ae_uart_writePipetteSpeed (const uint8_t id, const uint16_t msg); // aspire speed, dispense speed
-void ae_uart_cmdAspire (const uint8_t id); 
-void ae_uart_cmdDispense (const uint8_t id); 
-void ae_uart_cmdDispenseStepVolume (const uint8_t id, const uint16_t); 
-void ae_uart_cmdZero (const uint8_t id); 
+#define ae_uart_write_timeout 100
+#define ae_uart_read_timeout 100
+#define ae_exception_func_ 0xFF
+
+bool ae_uart_readDeviceId (uint8_t *data); 
+bool ae_uart_writeDeviceId (const uint8_t address, const uint8_t msg);
+bool ae_uart_readSetVolume (const uint8_t address, uint16_t *data);
+bool ae_uart_writeSetVolume (const uint8_t address, const uint16_t msg);
+bool ae_uart_readPipetteSpeed (const uint8_t address, uint8_t *data1, uint8_t *data2); 
+bool ae_uart_writePipetteSpeed (const uint8_t address, const uint8_t msg1, const uint8_t msg2); 
+bool ae_uart_cmdAspire (const uint8_t address); 
+bool ae_uart_cmdDispense (const uint8_t address); 
+bool ae_uart_cmdDispenseStepVolume (const uint8_t address, const uint16_t msg); 
+bool ae_uart_cmdZero (const uint8_t address); 
 
 static const uint8_t ae_uart_s_CRCHi[] = {
     0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0,
@@ -72,6 +76,6 @@ static const uint8_t ae_uart_s_CRCLo[] = {
     0x43, 0x83, 0x41, 0x81, 0x80, 0x40
 };
 
-uint16_t ae_uart_CRC16_Modbus(uint8_t * _pBuf, uint16_t _usLen); // CRC-16 modbus calculation
+uint16_t ae_uart_CRC16(uint8_t * _pBuf, uint16_t _usLen); // CRC-16 modbus calculation
 
 #endif // _AE_UART_

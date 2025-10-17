@@ -27,10 +27,12 @@
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc);}}
 #define ROS_NAMESPACE "" //#define ROS_NAMESPACE CONFIG_MICRO_ROS_NAMESPACE
 
+#define RS2_DE (GPIO_NUM_4)
+#define RS2_TX (GPIO_NUM_5)
+#define RS2_RX (GPIO_NUM_6)
+#define RS1_DE (GPIO_NUM_16)
 #define RS1_TX (GPIO_NUM_17)
 #define RS1_RX (GPIO_NUM_18)
-#define RS2_TX (GPIO_NUM_19)		// usb-jtag
-#define RS2_RX (GPIO_NUM_20)		// usb-jtag
 
 static const char *AE_UART_TAG = "ae_uart";
 static const char *TANMONE_UART_TAG = "tanmone_uart";
@@ -57,11 +59,19 @@ const uint64_t micro_ros_spin_timeout = RCL_MS_TO_NS(1); // Spin period for micr
 uint16_t micro_ros_i; // Counter for micro ros time sync
 const int micro_ros_sync_session_timeout_ms = 50; // Timeout for micro ros time sync
 
-uint8_t ae_device_id = 1, new_ae_device_id; // AE pipette device id
+uint8_t ae_device_id, new_ae_device_id; // AE pipette device id
 uint8_t ae_task = 0; // 1: readDeviceId, 2: writeDeviceId, 3: readSetVolume, 4: writeSetVolume, 5: readPipetteSpeed, 6: writePipetteSpeed, 7: cmdAspire, 8: cmdDispense, 9: cmdDispenseStepVolume, 10: cmdZero
 uint16_t ae_set_volume; // unit: 0.1uL
-uint16_t ae_pipette_speed; // high byte: aspire speed, low byte: dispense speed
+uint8_t ae_aspire_speed, ae_dispense_speed; 
 uint16_t ae_step_volume; // <=actual volume high 8bits, low 8bits
+uint32_t dispensed_volume; // unit: 0.1uL (Maximum 0xFFFFFFFF =  429496729.5 uL (429 L)
+uint8_t ae_task_attempt;
+
+uint8_t tanmone_device_id = 0x00;
+uint8_t tanmone_task = 0;
+int16_t tanmone_temperature_buffer, tanmone_ORP_buffer;
+uint16_t tanmone_pH_buffer;
+float tanmone_pH, tanmone_temperature, tanmone_ORP;
 
 static size_t uart_port = UART_NUM_0;
 
@@ -70,7 +80,7 @@ static size_t uart_port = UART_NUM_0;
 */
 
 const int ae_uart_buffer_size = 128;
-const uint8_t ae_uart_read_tout = 3; // 3.5T * 8 = 28 ticks, TOUT=3 -> ~24..33 ticks
+//const uint8_t ae_uart_read_tout = 3; // 3.5T * 8 = 28 ticks, TOUT=3 -> ~24..33 ticks
 uart_config_t ae_uart_config = {
 	.baud_rate = 9600,
 	.data_bits = UART_DATA_8_BITS,
@@ -87,54 +97,124 @@ void ae_uart_help_response() {
 
 
 void ae_uart_task(void *arg) {  
+	ae_task = 1;
 	while (1) {
 		switch (ae_task) {
 			case 1: // readDeviceId
-				// ESP_LOGI(AE_UART_TAG, "ae_uart_task: readDeviceId");
-				uint8_t read_device_id = ae_uart_readDeviceId();
+				if (ae_uart_readDeviceId(&ae_device_id)) {
+				}
+				ae_task = 2;
 				break;
 			case 2: // writeDeviceId
-				// ESP_LOGI(AE_UART_TAG, "ae_uart_task: writeDeviceId");
-				ae_uart_writeDeviceId(ae_device_id, new_ae_device_id);
+				if (ae_uart_writeDeviceId(0x01, 0x03)) {
+				}
+				ae_task = 3;
 				break;
 			case 3: // readSetVolume
-				// ESP_LOGI(AE_UART_TAG, "ae_uart_task: readSetVolume");
-				uint16_t read_set_volume = ae_uart_readSetVolume(ae_device_id);
+				if (ae_uart_readSetVolume(0x03, &ae_set_volume)) {
+				}
+				ae_task = 4;
 				break;
 			case 4: // writeSetVolume
-				// ESP_LOGI(AE_UART_TAG, "ae_uart_task: writeSetVolume");
-				ae_uart_writeSetVolume(ae_device_id, ae_set_volume);
+				if (ae_uart_writeSetVolume(0x03, 60)) {
+				}
+				ae_task = 5;
 				break;
 			case 5: // readPipetteSpeed
-				// ESP_LOGI(AE_UART_TAG, "ae_uart_task: readPipetteSpeed");
-				uint16_t read_pipette_speed = ae_uart_readPipetteSpeed(ae_device_id);
+				if (ae_uart_readPipetteSpeed(0x03, &ae_aspire_speed, &ae_dispense_speed)) {
+				}
+				ae_task = 6;
 				break;
 			case 6: // writePipetteSpeed
-				// ESP_LOGI(AE_UART_TAG, "ae_uart_task: writePipetteSpeed");
-				ae_uart_writePipetteSpeed(ae_device_id, ae_pipette_speed);
+				if (ae_uart_writePipetteSpeed(0x03, 0x05, 0x05)) {
+				}
+				ae_task = 7;
 				break;
 			case 7: // cmdAspire
-				// ESP_LOGI(AE_UART_TAG, "ae_uart_task: cmdAspire");
-				ae_uart_cmdAspire(ae_device_id);
+				if (ae_uart_cmdAspire(0x03)) { 
+					dispensed_volume = dispensed_volume + ae_set_volume;
+				}
+				ae_task = 8;
 				break;
 			case 8: // cmdDispense
-				// ESP_LOGI(AE_UART_TAG, "ae_uart_task: cmdDispense");
-				ae_uart_cmdDispense(ae_device_id);
+				if (ae_uart_cmdDispense(0x03)) {
+				}
+				ae_task = 9;
 				break;
 			case 9: // cmdDispenseStepVolume
-				// ESP_LOGI(AE_UART_TAG, "ae_uart_task: cmdDispenseStepVolume");
-				ae_uart_cmdDispenseStepVolume(ae_device_id, ae_step_volume); 
+				if (ae_uart_cmdDispenseStepVolume(0x03, 100)) {
+				}
+				ae_task = 10;
 				break;
 			case 10: // cmdZero
-				// ESP_LOGI(AE_UART_TAG, "ae_uart_task: cmdZero");
-				ae_uart_cmdZero(ae_device_id);
+				if (ae_uart_cmdZero(0x03)) {
+				}
+				ae_task = 0;
 				break;
 			default:
 				break;
 		}
-		ae_task = 0;
 		ae_uart_help_response();
 		vTaskDelay(pdMS_TO_TICKS(500));
+	}
+	vTaskDelete(NULL);
+}
+
+
+/* -------------------- tanmone uart -------------------- -------------------- -------------------- -------------------- -------------------- --------------------
+*/
+
+const int tanmone_uart_buffer_size = 128;
+//const uint8_t tanmone_uart_read_tout = 3; // 3.5T * 8 = 28 ticks, TOUT=3 -> ~24..33 ticks
+uart_config_t tanmone_uart_config = {
+	.baud_rate = 9600,
+	.data_bits = UART_DATA_8_BITS,
+	.parity = UART_PARITY_DISABLE,
+	.stop_bits = UART_STOP_BITS_1,
+	.flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+	// .rx_flow_ctrl_thresh = 122,
+	.source_clk = UART_SCLK_DEFAULT, 
+};
+
+void tanmone_uart_help_response() {
+
+}
+
+void tanmone_uart_task(void *arg) { 
+	tanmone_task = 1;
+	vTaskDelay(pdMS_TO_TICKS(250)); 
+	while (1) {
+		switch (tanmone_task) {
+			case 1:
+				if (tanmone_uart_readpH(tanmone_device_id, &tanmone_pH_buffer)) {
+					tanmone_pH = tanmone_pH_buffer / 100.0;
+				}
+				tanmone_task = 2;
+				break;
+			case 2:
+				if (tanmone_uart_readTemperature(tanmone_device_id, &tanmone_temperature_buffer)) {
+					tanmone_temperature = tanmone_temperature_buffer / 10.0;
+				}
+				tanmone_task = 3;
+				break;
+			case 3:
+				if (tanmone_uart_readBatch(tanmone_device_id, &tanmone_pH_buffer, &tanmone_temperature_buffer)) {
+					tanmone_pH = tanmone_pH_buffer / 100.0;
+					tanmone_temperature = tanmone_temperature_buffer / 10.0;
+				}
+				tanmone_task = 4;
+				break;
+			case 4:
+				if (tanmone_uart_readORP(tanmone_device_id, &tanmone_ORP_buffer)) {
+					tanmone_ORP = tanmone_ORP_buffer / 1000.0;
+				}
+				tanmone_task = 0;
+				break;
+			default:
+				break;
+		}
+		tanmone_uart_help_response();
+		vTaskDelay(pdMS_TO_TICKS(500)); // not less than 500 ms
 	}
 	vTaskDelete(NULL);
 }
@@ -146,6 +226,7 @@ void ae_uart_task(void *arg) {
 void ph_timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
 	RCLC_UNUSED(last_call_time);
 	if (timer != NULL) {
+		ph_msg.data = tanmone_pH;
 		RCSOFTCHECK(rcl_publish(&ph_publisher, &ph_msg, NULL));
 	}
 }
@@ -153,6 +234,7 @@ void ph_timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
 void temperature_timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
 	RCLC_UNUSED(last_call_time);
 	if (timer != NULL) {
+		temperature_msg.data = tanmone_temperature;
 		RCSOFTCHECK(rcl_publish(&temperature_publisher, &temperature_msg, NULL));
 	}
 }
@@ -184,8 +266,8 @@ bool create_entities(void) {
 	//RCCHECK(rclc_subscription_init_default(&speed_subscriber, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(shoalbot_interfaces, msg, SpeedCmd), "speed"));
 	RCCHECK(rclc_subscription_init_default(&pipettecmd_subscriber, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int8), "pipette_cmd"));
 	//RCCHECK(rclc_service_init_default(&hardwareconfig_service, &node, ROSIDL_GET_SRV_TYPE_SUPPORT(shoalbot_interfaces, srv, HardwareConfig), "hardware_config"));
-	RCCHECK(rclc_timer_init_default2(&ph_timer, &support, RCL_MS_TO_NS(100), ph_timer_callback, true));
-	RCCHECK(rclc_timer_init_default2(&temperature_timer, &support, RCL_MS_TO_NS(100), temperature_timer_callback, true));
+	RCCHECK(rclc_timer_init_default2(&ph_timer, &support, RCL_MS_TO_NS(500), ph_timer_callback, true)); // 2 Hz
+	RCCHECK(rclc_timer_init_default2(&temperature_timer, &support, RCL_MS_TO_NS(500), temperature_timer_callback, true)); // 2 Hz
 	executor = rclc_executor_get_zero_initialized_executor(); 
 	RCCHECK(rclc_executor_init(&executor, &support.context, 10, &allocator)); // create executor
 	RCCHECK(rclc_executor_add_timer(&executor, &ph_timer));
@@ -273,8 +355,23 @@ void app_main(void) {
 	ESP_LOGI(AE_UART_TAG, "Discard all data in the ae uart rx buffer");
 	ESP_ERROR_CHECK(uart_flush(UART_NUM_2));
 
+	ESP_LOGI(TANMONE_UART_TAG,"Install tanmone uart driver");
+	ESP_ERROR_CHECK(uart_driver_install(UART_NUM_1, tanmone_uart_buffer_size * 2, 0, 0, NULL, 0)); // no tx buffer, no event queue
+	ESP_LOGI(TANMONE_UART_TAG,"Configure tanmone uart parameter");
+	ESP_ERROR_CHECK(uart_param_config(UART_NUM_1, &tanmone_uart_config));
+	ESP_LOGI(TANMONE_UART_TAG,"Assign signals of tanmone uart peripheral to gpio pins");
+	ESP_ERROR_CHECK(uart_set_pin(UART_NUM_1, RS1_TX, RS1_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+	// ESP_LOGI(NC_UART_TAG,"Set nc uart to rs485 half duplex mode");
+	// ESP_ERROR_CHECK(uart_set_mode(UART_NUM_2, UART_MODE_RS485_HALF_DUPLEX));
+	// ESP_LOGI(NC_UART_TAG,"Set nc uart read threshold timeout for TOUT feature");
+	// ESP_ERROR_CHECK(uart_set_rx_timeout(UART_NUM_2, nc_uart_read_tout));
+	ESP_LOGI(TANMONE_UART_TAG, "Discard all data in the tanmone uart rx buffer");
+	ESP_ERROR_CHECK(uart_flush(UART_NUM_1));
+
 	ESP_LOGI(AE_UART_TAG, "Create ae uart task");
 	xTaskCreate(ae_uart_task, "ae_uart_task", 4096, NULL, 5, NULL);
+	ESP_LOGI(TANMONE_UART_TAG, "Create tanmone uart task");
+	xTaskCreate(tanmone_uart_task, "tanmone_uart_task", 4096, NULL, 5, NULL);
 
 	#if defined(RMW_UXRCE_TRANSPORT_CUSTOM)
 		rmw_uros_set_custom_transport(true, (void *) &uart_port, esp32_serial_open, esp32_serial_close, esp32_serial_write, esp32_serial_read);
