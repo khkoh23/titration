@@ -14,6 +14,7 @@
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
 #include <std_msgs/msg/int8.h>
+#include <std_msgs/msg/u_int16.h>
 #include <std_msgs/msg/float32.h>
 
 #include <rmw_microxrcedds_c/config.h>
@@ -50,24 +51,26 @@ rcl_allocator_t allocator;
 rcl_node_t node;
 rcl_publisher_t ph_publisher, temperature_publisher;
 rcl_timer_t ph_timer, temperature_timer;
-rcl_subscription_t pipettecmd_subscriber;
+rcl_subscription_t pipettecmd_subscriber, pipettesetvol_subscriber, pipettestepvol_subscriber;
 std_msgs__msg__Float32 ph_msg, temperature_msg;
 std_msgs__msg__Int8 pipettecmd_msg;
+std_msgs__msg__UInt16 pipettesetvol_msg, pipettestepvol_msg;
 const int micro_ros_timeout_ms = 100; // Timeout for each micro ros ping attempt
 const uint8_t micro_ros_attempts = 1; // Number of micro ros ping attempts
 const uint64_t micro_ros_spin_timeout = RCL_MS_TO_NS(1); // Spin period for micro ros executor
 uint16_t micro_ros_i; // Counter for micro ros time sync
 const int micro_ros_sync_session_timeout_ms = 50; // Timeout for micro ros time sync
 
-uint8_t ae_device_id, new_ae_device_id; // AE pipette device id
-uint8_t ae_task = 0; // 1: readDeviceId, 2: writeDeviceId, 3: readSetVolume, 4: writeSetVolume, 5: readPipetteSpeed, 6: writePipetteSpeed, 7: cmdAspire, 8: cmdDispense, 9: cmdDispenseStepVolume, 10: cmdZero
-uint16_t ae_set_volume; // unit: 0.1uL
-uint8_t ae_aspire_speed, ae_dispense_speed; 
-uint16_t ae_step_volume; // <=actual volume high 8bits, low 8bits
-uint32_t dispensed_volume; // unit: 0.1uL (Maximum 0xFFFFFFFF =  429496729.5 uL (429 L)
+bool new_ae;
+uint8_t ae_device_id = 0x01, new_ae_device_id; // AE pipette device id
+uint8_t ae_task = 0; 
+uint16_t ae_set_volume = 2000, new_ae_set_volume; // unit: 0.1uL, range: 5 uL to 200 uL
+uint8_t ae_aspire_speed, ae_dispense_speed, new_ae_aspire_speed = 2, new_ae_dispense_speed = 2; // range: 1 to 3
+uint16_t ae_step_volume = 200; // <=actual volume high 8bits, low 8bits
+uint16_t ae_holding_volume; // unit: 0.1uL (Maximum 0xFFFF =  6553.5 uL (6.5535 mL)
 uint8_t ae_task_attempt;
 
-uint8_t tanmone_device_id = 0x00;
+uint8_t tanmone_device_id = 0x02;
 uint8_t tanmone_task = 0;
 int16_t tanmone_temperature_buffer, tanmone_ORP_buffer;
 uint16_t tanmone_pH_buffer;
@@ -97,62 +100,72 @@ void ae_uart_help_response() {
 
 
 void ae_uart_task(void *arg) {  
-	ae_task = 1;
+	ae_uart_cmdEnterOnlineMode(ae_device_id);
+	ae_uart_writeSetVolume(ae_device_id, ae_set_volume);
 	while (1) {
-		switch (ae_task) {
-			case 1: // readDeviceId
-				if (ae_uart_readDeviceId(&ae_device_id)) {
-				}
-				ae_task = 2;
-				break;
-			case 2: // writeDeviceId
-				if (ae_uart_writeDeviceId(0x01, 0x03)) {
-				}
-				ae_task = 3;
-				break;
-			case 3: // readSetVolume
-				if (ae_uart_readSetVolume(0x03, &ae_set_volume)) {
-				}
-				ae_task = 4;
-				break;
-			case 4: // writeSetVolume
-				if (ae_uart_writeSetVolume(0x03, 60)) {
-				}
-				ae_task = 5;
-				break;
-			case 5: // readPipetteSpeed
-				if (ae_uart_readPipetteSpeed(0x03, &ae_aspire_speed, &ae_dispense_speed)) {
-				}
-				ae_task = 6;
-				break;
-			case 6: // writePipetteSpeed
-				if (ae_uart_writePipetteSpeed(0x03, 0x05, 0x05)) {
-				}
-				ae_task = 7;
-				break;
-			case 7: // cmdAspire
-				if (ae_uart_cmdAspire(0x03)) { 
-					dispensed_volume = dispensed_volume + ae_set_volume;
-				}
-				ae_task = 8;
-				break;
-			case 8: // cmdDispense
-				if (ae_uart_cmdDispense(0x03)) {
-				}
-				ae_task = 9;
-				break;
-			case 9: // cmdDispenseStepVolume
-				if (ae_uart_cmdDispenseStepVolume(0x03, 100)) {
-				}
-				ae_task = 10;
-				break;
-			case 10: // cmdZero
-				if (ae_uart_cmdZero(0x03)) {
-				}
-				ae_task = 0;
-				break;
-			default:
-				break;
+		if (new_ae) {
+			switch (ae_task) {
+				case 1: // readDeviceId
+					if (ae_uart_readDeviceId(&ae_device_id)) {
+					}
+					break;
+				case 2: // writeDeviceId
+					if (ae_uart_writeDeviceId(ae_device_id, new_ae_device_id)) {
+					}
+					break;
+				case 3: // readSetVolume
+					if (ae_uart_readSetVolume(ae_device_id, &ae_set_volume)) {
+					}
+					break;
+				case 4: // writeSetVolume
+					if ((new_ae_set_volume < 50) || (new_ae_set_volume > 2000)) break;
+					if (ae_uart_writeSetVolume(ae_device_id, new_ae_set_volume)) {
+						ae_set_volume = new_ae_set_volume;
+					}
+					break;
+				case 5: // readPipetteSpeed
+					if (ae_uart_readPipetteSpeed(ae_device_id, &ae_aspire_speed, &ae_dispense_speed)) {
+					}
+					break;
+				case 6: // writePipetteSpeed
+					if ((new_ae_aspire_speed < 1) || (new_ae_aspire_speed > 3)) break;
+					if ((new_ae_dispense_speed < 1) || (new_ae_dispense_speed > 3)) break;
+					if (ae_uart_writePipetteSpeed(ae_device_id, new_ae_aspire_speed, new_ae_dispense_speed)) {
+						ae_aspire_speed = new_ae_aspire_speed;
+						ae_dispense_speed = new_ae_dispense_speed;
+					}
+					break;
+				case 7: // cmdAspire
+					if (ae_uart_cmdAspire(ae_device_id)) { 
+						ae_holding_volume = ae_holding_volume + ae_set_volume; // Placeholder: the holding volume is tracked by higher level process
+					}
+					break;
+				case 8: // cmdDispense
+					if (ae_uart_cmdDispense(ae_device_id)) {
+						ae_holding_volume = ae_holding_volume - ae_set_volume; // Placeholder: the holding volume is tracked by higher level process
+					}
+					break;
+				case 9: // cmdDispenseStepVolume
+					if (ae_uart_cmdDispenseStepVolume(ae_device_id, ae_step_volume)) { 
+						ae_holding_volume = ae_holding_volume - ae_step_volume; // Placeholder: the holding volume is tracked by higher level process
+					}
+					break;
+				case 10: // cmdZero
+					if (ae_uart_cmdZero(ae_device_id)) {
+					}
+					break;
+				case 80: // cmdExitOnlineMode
+					if (ae_uart_cmdExitOnlineMode(ae_device_id)) {
+					}
+					break;
+				case 81: // cmdEnterOnlineMode
+					if (ae_uart_cmdEnterOnlineMode(ae_device_id)) {
+					}
+					break;
+				default:
+					break;
+			}
+			new_ae = false;
 		}
 		ae_uart_help_response();
 		vTaskDelay(pdMS_TO_TICKS(500));
@@ -189,32 +202,32 @@ void tanmone_uart_task(void *arg) {
 				if (tanmone_uart_readpH(tanmone_device_id, &tanmone_pH_buffer)) {
 					tanmone_pH = tanmone_pH_buffer / 100.0;
 				}
-				tanmone_task = 2;
+				// tanmone_task = 2;
 				break;
 			case 2:
 				if (tanmone_uart_readTemperature(tanmone_device_id, &tanmone_temperature_buffer)) {
 					tanmone_temperature = tanmone_temperature_buffer / 10.0;
 				}
-				tanmone_task = 3;
+				// tanmone_task = 3;
 				break;
 			case 3:
 				if (tanmone_uart_readBatch(tanmone_device_id, &tanmone_pH_buffer, &tanmone_temperature_buffer)) {
 					tanmone_pH = tanmone_pH_buffer / 100.0;
 					tanmone_temperature = tanmone_temperature_buffer / 10.0;
 				}
-				tanmone_task = 4;
+				// tanmone_task = 4;
 				break;
 			case 4:
 				if (tanmone_uart_readORP(tanmone_device_id, &tanmone_ORP_buffer)) {
 					tanmone_ORP = tanmone_ORP_buffer / 1000.0;
 				}
-				tanmone_task = 0;
+				// tanmone_task = 0;
 				break;
 			default:
 				break;
 		}
 		tanmone_uart_help_response();
-		vTaskDelay(pdMS_TO_TICKS(500)); // not less than 500 ms
+		vTaskDelay(pdMS_TO_TICKS(250)); // Mote: according to vendor, not less than 500 ms
 	}
 	vTaskDelete(NULL);
 }
@@ -239,41 +252,39 @@ void temperature_timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
 	}
 }
 
-void pipettecmd_callback(const void * msgin) { // Aspire: -1, Dispense: 1, Zero: 0
-	switch (pipettecmd_msg.data) {
-		case -1:
-			ae_task = 7;
-			break;
-		case 1:
-			ae_task = 8;
-			break;
-		case 0:
-			ae_task = 10;
-			break;
-		default:
-			break;
-	}
-	// new_speed = true;
+void pipettecmd_callback(const void * msgin) { 
+	ae_task = pipettecmd_msg.data;
+	new_ae = true;
+}
+
+void pipettesetvol_callback(const void * msgin) { 
+	ae_task = 4; 
+	new_ae_set_volume = pipettesetvol_msg.data;
+	new_ae = true;
+}
+
+void pipettestepvol_callback(const void * msgin) { 
+	ae_step_volume = pipettestepvol_msg.data;
 }
 
 bool create_entities(void) {
 	allocator = rcl_get_default_allocator();
 	RCCHECK(rclc_support_init(&support, 0, NULL, &allocator)); // create init_options
 	RCCHECK(rclc_node_init_default(&node, "titration_mcu", ROS_NAMESPACE, &support)); // create node
-	//RCCHECK(rclc_publisher_init_default(&debug_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(shoalbot_interfaces, msg, Debug), "debug"));
 	RCCHECK(rclc_publisher_init_default(&ph_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32), "ph"));
 	RCCHECK(rclc_publisher_init_default(&temperature_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32), "temperature"));
-	//RCCHECK(rclc_subscription_init_default(&speed_subscriber, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(shoalbot_interfaces, msg, SpeedCmd), "speed"));
 	RCCHECK(rclc_subscription_init_default(&pipettecmd_subscriber, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int8), "pipette_cmd"));
-	//RCCHECK(rclc_service_init_default(&hardwareconfig_service, &node, ROSIDL_GET_SRV_TYPE_SUPPORT(shoalbot_interfaces, srv, HardwareConfig), "hardware_config"));
-	RCCHECK(rclc_timer_init_default2(&ph_timer, &support, RCL_MS_TO_NS(500), ph_timer_callback, true)); // 2 Hz
-	RCCHECK(rclc_timer_init_default2(&temperature_timer, &support, RCL_MS_TO_NS(500), temperature_timer_callback, true)); // 2 Hz
+	RCCHECK(rclc_subscription_init_default(&pipettesetvol_subscriber, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, UInt16), "pipette_set_vol"));
+	RCCHECK(rclc_subscription_init_default(&pipettestepvol_subscriber, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, UInt16), "pipette_step_vol"));
+	RCCHECK(rclc_timer_init_default2(&ph_timer, &support, RCL_MS_TO_NS(250), ph_timer_callback, true)); 
+	RCCHECK(rclc_timer_init_default2(&temperature_timer, &support, RCL_MS_TO_NS(250), temperature_timer_callback, true)); 
 	executor = rclc_executor_get_zero_initialized_executor(); 
 	RCCHECK(rclc_executor_init(&executor, &support.context, 10, &allocator)); // create executor
 	RCCHECK(rclc_executor_add_timer(&executor, &ph_timer));
 	RCCHECK(rclc_executor_add_timer(&executor, &temperature_timer));
 	RCCHECK(rclc_executor_add_subscription(&executor, &pipettecmd_subscriber, &pipettecmd_msg, &pipettecmd_callback, ON_NEW_DATA));
-	//RCCHECK(rclc_executor_add_service(&executor, &hardwareconfig_service, &hardwareconfig_req, &hardwareconfig_res, hardwareconfigservice_callback));
+	RCCHECK(rclc_executor_add_subscription(&executor, &pipettesetvol_subscriber, &pipettesetvol_msg, &pipettesetvol_callback, ON_NEW_DATA));
+	RCCHECK(rclc_executor_add_subscription(&executor, &pipettestepvol_subscriber, &pipettestepvol_msg, &pipettestepvol_callback, ON_NEW_DATA));
 	return true;
 }
 
@@ -284,8 +295,9 @@ void destroy_entities(void) {
 	RCCHECK(rcl_publisher_fini(&temperature_publisher, &node));
 	RCCHECK(rcl_timer_fini(&ph_timer));
 	RCCHECK(rcl_timer_fini(&temperature_timer));
-	//RCCHECK(rcl_subscription_fini(&speed_subscriber, &node));
-	//RCCHECK(rcl_service_fini(&hardwareconfig_service, &node));
+	RCCHECK(rcl_subscription_fini(&pipettecmd_subscriber, &node));
+	RCCHECK(rcl_subscription_fini(&pipettesetvol_subscriber, &node));
+	RCCHECK(rcl_subscription_fini(&pipettestepvol_subscriber, &node));
 	RCCHECK(rcl_node_fini(&node));
 	RCCHECK(rclc_support_fini(&support));
 }
@@ -331,16 +343,6 @@ void micro_ros_task(void * arg) {
 
 void app_main(void) {
 	uros_state = WAITING_AGENT;
-
-	// uint8_t my_message1[] = {0x03, 0x06, 0x05, 0x05};
-	// uint16_t my_message1_length = sizeof(my_message1);
-	// uint16_t crc_result1 = ae_uart_CRC16_Modbus(my_message1, my_message1_length);
-	// ESP_LOGI(AE_UART_TAG, "Checksum   Low: %x   High: %x", (uint8_t) crc_result1&0x00FF, (uint8_t) ((crc_result1&0xFF00)>>8));
-
-	// uint8_t my_message2[] = {0x00, 0x03, 0x02, 0x02, 0xAE};
-	// uint16_t my_message2_length = sizeof(my_message2);
-	// uint16_t crc_result2 = tanmone_uart_ModRTU_CRC(my_message2, my_message2_length);
-	// ESP_LOGI(TANMONE_UART_TAG, "Checksum   Low: %x   High: %x", (uint8_t) crc_result2&0x00FF, (uint8_t) ((crc_result2&0xFF00)>>8));
 
 	ESP_LOGI(AE_UART_TAG,"Install ae uart driver");
 	ESP_ERROR_CHECK(uart_driver_install(UART_NUM_2, ae_uart_buffer_size * 2, 0, 0, NULL, 0)); // no tx buffer, no event queue

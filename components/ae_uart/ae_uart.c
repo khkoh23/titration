@@ -93,7 +93,7 @@ bool ae_uart_readSetVolume (const uint8_t address, uint16_t *data) {
 }
 
 /*Function code 0x04
-*/
+the sent pipetting volume shall not exceed the range. E.g., range of 200uL: 5uL to 200uL*/
 bool ae_uart_writeSetVolume (const uint8_t address, const uint16_t msg) { 
     uint8_t func_ = 0x04;
     uint8_t msg_[] = {address, func_, (uint8_t) ((msg&0xFF00)>>8), (uint8_t) msg&0x00FF};
@@ -155,7 +155,7 @@ bool ae_uart_readPipetteSpeed (const uint8_t address, uint8_t *data1, uint8_t *d
 }
 
 /*Function code 0x06
-aspire speed, dispense speed*/
+aspire speed, dispense speed : [speed range 1 to 3 low, medium, high speed]*/
 bool ae_uart_writePipetteSpeed (const uint8_t address, const uint8_t msg1, const uint8_t msg2) { 
     uint8_t func_ = 0x06;
     uint8_t msg_[] = {address, func_, msg1, msg2};
@@ -303,6 +303,67 @@ bool ae_uart_cmdZero (const uint8_t address) {
     }
     ESP_ERROR_CHECK(uart_flush(UART_NUM_2)); 
 }
+
+/*Function code 0x51
+online mode means all pipetting commands are sent by the computer, and key operations are disabled*/
+bool ae_uart_cmdEnterOnlineMode (const uint8_t address) {
+    uint8_t func_ = 0x51;
+    uint8_t msg_[] = {address, func_};
+	uint16_t crc_ = ae_uart_CRC16(msg_, sizeof(msg_));
+    uint8_t src_write[4] = {address, func_, (uint8_t) ((crc_&0xFF00)>>8), (uint8_t) crc_&0x00FF};
+    uart_write_bytes(UART_NUM_2, src_write, sizeof(src_write));
+    ESP_ERROR_CHECK(uart_wait_tx_done(UART_NUM_2, pdMS_TO_TICKS(ae_uart_write_timeout)));
+    uint8_t buf_read[4];
+    uint32_t length_read = 0;
+    ESP_ERROR_CHECK(uart_get_buffered_data_len(UART_NUM_2, (size_t*)&length_read));
+    length_read = uart_read_bytes(UART_NUM_2, buf_read, length_read, pdMS_TO_TICKS(ae_uart_read_timeout));
+    uint16_t received_crc = (buf_read[2] << 8) | buf_read[3];
+    uint16_t expected_crc = ae_uart_CRC16(buf_read, length_read - 2);
+    // Address check:
+    if (buf_read[0] != address) return false;
+    // Exception response check:
+    else if (buf_read[1] == ae_exception_func_) return false; 
+    // Function code check:
+    else if (buf_read[1] != func_) return false; 
+    // CRC check:
+    else if (received_crc != expected_crc) return false;
+    // Extract valid data
+    else {
+        return true;
+    }
+    ESP_ERROR_CHECK(uart_flush(UART_NUM_2)); 
+}
+
+/*Function code 0x50
+key operations are available in normal mode*/
+bool ae_uart_cmdExitOnlineMode (const uint8_t address) {
+    uint8_t func_ = 0x50;
+    uint8_t msg_[] = {address, func_};
+	uint16_t crc_ = ae_uart_CRC16(msg_, sizeof(msg_));
+    uint8_t src_write[4] = {address, func_, (uint8_t) ((crc_&0xFF00)>>8), (uint8_t) crc_&0x00FF};
+    uart_write_bytes(UART_NUM_2, src_write, sizeof(src_write));
+    ESP_ERROR_CHECK(uart_wait_tx_done(UART_NUM_2, pdMS_TO_TICKS(ae_uart_write_timeout)));
+    uint8_t buf_read[4];
+    uint32_t length_read = 0;
+    ESP_ERROR_CHECK(uart_get_buffered_data_len(UART_NUM_2, (size_t*)&length_read));
+    length_read = uart_read_bytes(UART_NUM_2, buf_read, length_read, pdMS_TO_TICKS(ae_uart_read_timeout));
+    uint16_t received_crc = (buf_read[2] << 8) | buf_read[3];
+    uint16_t expected_crc = ae_uart_CRC16(buf_read, length_read - 2);
+    // Address check:
+    if (buf_read[0] != address) return false;
+    // Exception response check:
+    else if (buf_read[1] == ae_exception_func_) return false; 
+    // Function code check:
+    else if (buf_read[1] != func_) return false; 
+    // CRC check:
+    else if (received_crc != expected_crc) return false;
+    // Extract valid data
+    else {
+        return true;
+    }
+    ESP_ERROR_CHECK(uart_flush(UART_NUM_2)); 
+}
+
 
 uint16_t ae_uart_CRC16(uint8_t *_pBuf, uint16_t _usLen) {
     uint8_t ucCRCHi = 0xFF;

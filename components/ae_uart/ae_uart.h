@@ -17,6 +17,8 @@ bool ae_uart_cmdAspire (const uint8_t address);
 bool ae_uart_cmdDispense (const uint8_t address); 
 bool ae_uart_cmdDispenseStepVolume (const uint8_t address, const uint16_t msg); 
 bool ae_uart_cmdZero (const uint8_t address); 
+bool ae_uart_cmdEnterOnlineMode (const uint8_t address); 
+bool ae_uart_cmdExitOnlineMode (const uint8_t address); 
 
 static const uint8_t ae_uart_s_CRCHi[] = {
     0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0,
