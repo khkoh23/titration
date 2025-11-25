@@ -194,7 +194,7 @@ void tanmone_uart_help_response() {
 }
 
 void tanmone_uart_task(void *arg) { 
-	tanmone_task = 1;
+	tanmone_task = 3;
 	vTaskDelay(pdMS_TO_TICKS(250)); 
 	while (1) {
 		switch (tanmone_task) {
@@ -227,7 +227,7 @@ void tanmone_uart_task(void *arg) {
 				break;
 		}
 		tanmone_uart_help_response();
-		vTaskDelay(pdMS_TO_TICKS(250)); // Mote: according to vendor, not less than 500 ms
+		vTaskDelay(pdMS_TO_TICKS(500)); // Note: according to vendor, not less than 500 ms
 	}
 	vTaskDelete(NULL);
 }

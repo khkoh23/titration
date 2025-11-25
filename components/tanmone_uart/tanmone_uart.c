@@ -15,7 +15,7 @@ bool tanmone_uart_readpH (const uint8_t address, uint16_t *data) {
     ESP_ERROR_CHECK(uart_get_buffered_data_len(UART_NUM_1, (size_t*)&length_read));
     length_read = uart_read_bytes(UART_NUM_1, buf_read, length_read, pdMS_TO_TICKS(tanmone_uart_read_timeout));
     uint16_t received_crc = (buf_read[5] << 8) | buf_read[6];
-    uint16_t expected_crc = tanmone_uart_CRC16(buf_read, length_read- 2);
+    uint16_t expected_crc = tanmone_uart_CRC16(buf_read, length_read - 2);
     // Minimum response length check:
     if (length_read < 5) return false; // response length shorter than address (1) + functioncode (1) + bytecount (1) + crc (2)
     // Address check:
@@ -83,7 +83,7 @@ bool tanmone_uart_readBatch(const uint8_t address, uint16_t *data1, int16_t *dat
     ESP_ERROR_CHECK(uart_get_buffered_data_len(UART_NUM_1, (size_t*)&length_read));
     length_read = uart_read_bytes(UART_NUM_1, buf_read, length_read, pdMS_TO_TICKS(tanmone_uart_read_timeout));
     uint16_t received_crc = (buf_read[7] << 8) | buf_read[8];
-    uint16_t expected_crc = tanmone_uart_CRC16(buf_read, length_read- 2);
+    uint16_t expected_crc = tanmone_uart_CRC16(buf_read, length_read - 2);
     // Minimum response length check:
     if (length_read < 5) return false; // response length shorter than address (1) + functioncode (1) + bytecount (1) + crc (2)
     // Address check:
@@ -118,7 +118,7 @@ bool tanmone_uart_readORP (const uint8_t address, int16_t *data) {
     ESP_ERROR_CHECK(uart_get_buffered_data_len(UART_NUM_1, (size_t*)&length_read));
     length_read = uart_read_bytes(UART_NUM_1, buf_read, length_read, pdMS_TO_TICKS(tanmone_uart_read_timeout));
     uint16_t received_crc = (buf_read[5] << 8) | buf_read[6];
-    uint16_t expected_crc = tanmone_uart_CRC16(buf_read, length_read- 2);
+    uint16_t expected_crc = tanmone_uart_CRC16(buf_read, length_read - 2);
     // Minimum response length check:
     if (length_read < 5) return false; // response length shorter than address (1) + functioncode (1) + bytecount (1) + crc (2)
     // Address check:
